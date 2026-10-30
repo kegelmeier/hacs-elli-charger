@@ -12,6 +12,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0b0] - 2026-10-30
+
+Fork of mawiak/hacs-elli-charger, maintained at kegelmeier/hacs-elli-charger.
+
+### Changed
+- Login through the browser (OAuth2 with PKCE, `elli-client` 1.5.0), since Elli's login page blocks email/password logins. Only the refresh token is stored; rotated tokens are saved, and a revoked one starts Home Assistant's reauthentication.
+- Entries from 1.0.0 ask to reauthenticate once and keep their entities.
+- Status states are now `idle` / `connected` / `charging` (translated).
+- All sensors of a wallbox belong to one device, with model, serial and firmware.
+
+### Added
+- Charging power sensor (W).
+- Total energy sensor for the Energy dashboard: completed charging records plus the running session, never decreasing.
+- Polling interval option (2–60 min, default 5).
+- German translation.
+
+### Fixed
+- A 404 from the charging-sessions endpoint no longer breaks setup; it means nothing is charging.
+- The API client is created off the event loop (blocking-call warning).
+- Session energy keeps the last session's value instead of going unknown between sessions. It no longer has a state class (long-term statistics); use Total energy for the Energy dashboard.
+
 ## [1.0.0] - 2025-11-13
 
 ### Added

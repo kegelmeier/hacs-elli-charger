@@ -1,130 +1,59 @@
-# Elli Charger Integration for Home Assistant
+# Elli Charger for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/release/marcszy91/hacs-elli-charger.svg)](https://github.com/marcszy91/hacs-elli-charger/releases)
+Read-only Home Assistant integration for Elli wallboxes (Elli Charger Connect and Pro) through the Elli cloud, the same API the Elli app uses.
 
-Home Assistant integration for Elli charging stations (wallboxes). Monitor your charging sessions and station status directly in Home Assistant.
+This is a maintained fork of [mawiak/hacs-elli-charger](https://github.com/mawiak/hacs-elli-charger). Version 1.0.0 there logs in with email and password, which Elli's login page no longer allows (it has a Cloudflare Turnstile check). This fork logs in through your browser instead and stores only a refresh token.
 
-## Features
+## What you get
 
-- Real-time charging session monitoring
-- Energy consumption tracking (kWh)
-- Current charging power (Watts)
-- Station status and information
-- Automatic token refresh
-- Easy configuration through UI
+One device per wallbox on your Elli account, with these sensors:
+
+| Sensor | Meaning |
+|---|---|
+| Status | `idle`, `connected` or `charging` |
+| Charging power | Current charging power in W, 0 when nothing charges |
+| Session energy | kWh of the running session, or of the last one when idle |
+| Total energy | Lifetime kWh from all completed charging records plus the running session. Use this one in the Energy dashboard. |
+| Last session | State of the running session, or details of the last completed one as attributes (RFID card, start, end, energy) |
+
+Limits, all on Elli's side:
+
+- **Read-only.** Elli's API has no start, stop or current-limit calls.
+- **Slow.** The cloud updates every few minutes; the default poll interval is 5 minutes (2–60 in the options). For real-time power, put a meter on the wallbox circuit.
+- Firmware version and model show on the device page.
 
 ## Installation
 
-### HACS (Recommended)
+HACS → ⋮ → Custom repositories → `https://github.com/kegelmeier/hacs-elli-charger`, category Integration → download **Elli Charger** → restart Home Assistant.
 
-1. Open HACS in Home Assistant
-2. Go to "Integrations"
-3. Click the three dots in the top right corner
-4. Select "Custom repositories"
-5. Add the repository URL: `https://github.com/marcszy91/hacs-elli-charger`
-6. Select category: "Integration"
-7. Click "Add"
-8. Find "Elli Charger" in the integration list
-9. Click "Download"
-10. Restart Home Assistant
+## Setup
 
-### Manual Installation
+Settings → Devices & services → Add integration → **Elli Charger**. The dialog shows a login link:
 
-1. Download the latest release from [GitHub](https://github.com/marcszy91/hacs-elli-charger/releases)
-2. Extract the files to your `custom_components` directory:
-   ```
-   custom_components/elli_charger/
-   ```
-3. Restart Home Assistant
+1. On a computer, open the browser's developer tools (F12) on the **Console** tab, then open the login link in that same tab.
+2. Log in with your Elli account. Elli then tries to open the Elli app via a `com.elli.ios.emsp://...` address, which fails in a desktop browser.
+3. Copy that address from the console error ("Failed to launch 'com.elli.ios.emsp://…'") and paste it into the dialog. If your browser shows no console error, look in the **Network** tab (with "Preserve log" on) for the last redirect; its `Location` header is the address.
 
-## Configuration
+The link works once and only for a few minutes. After any error the dialog shows a fresh link.
 
-1. Go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "Elli Charger"
-4. Enter your Elli account credentials:
-   - Email
-   - Password
+If Elli ever revokes the stored login, Home Assistant shows a **Reauthenticate** notice that runs the same steps.
 
-## Sensors
+### Upgrading from 1.0.0
 
-The integration provides the following sensors:
+Your existing entry asks you to reauthenticate once. Entity IDs and their history are kept; the status sensor now reports lowercase states (`idle` / `connected` / `charging`).
 
-### Station Sensor
-- **Name**: `Elli [Station Name]`
-- **State**: Connected/Idle
-- **Attributes**:
-  - Station ID
-  - Name
-  - Serial Number
-  - Model
-  - Firmware Version
+## Privacy
 
-### Current Session Energy
-- **Name**: `Elli Current Session Energy`
-- **Unit**: kWh
-- **Device Class**: Energy
-- **Attributes**:
-  - Session ID
-  - Station ID
-  - Start Time
-  - End Time (if completed)
-  - Status
+The integration stores the OAuth refresh token in the config entry, never your password. It talks to `login.elli.eco` and `api.elli.eco` only.
 
-### Current Session Power
-- **Name**: `Elli Current Session Power`
-- **Unit**: W
-- **Device Class**: Power
-- **Attributes**:
-  - Session ID
-  - Station ID
-  - Status
+## Development
 
-## Usage Examples
-
-### Automation: Notify when charging complete
-
-```yaml
-automation:
-  - alias: "Notify when EV charging complete"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.elli_current_session_power
-        below: 100
-        for:
-          minutes: 5
-    condition:
-      - condition: numeric_state
-        entity_id: sensor.elli_current_session_energy
-        above: 5
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "EV charging complete! {{ states('sensor.elli_current_session_energy') }} kWh charged"
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements_test.txt
+pytest
 ```
-
-### Energy Dashboard
-
-Add the energy sensor to your Home Assistant Energy Dashboard:
-
-1. Go to **Settings** → **Dashboards** → **Energy**
-2. Under "Electricity grid" → "Add consumption"
-3. Select `sensor.elli_current_session_energy`
-
-## API Client
-
-This integration uses the [elli-client](https://pypi.org/project/elli-client/) Python package for communication with the Elli API.
-
-## Support
-
-- [Report Issues](https://github.com/marcszy91/hacs-elli-charger/issues)
-- [Feature Requests](https://github.com/marcszy91/hacs-elli-charger/issues)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
-
-## Disclaimer
-
-This integration is not officially supported by Elli or Volkswagen Group Charging GmbH. Use at your own risk.
+MIT, see [LICENSE](LICENSE). Original work by Marc Szymkowiak.

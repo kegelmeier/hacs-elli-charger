@@ -3,7 +3,9 @@
   "content_in_root": false,
   "filename": "hacs-elli-charger",
   "render_readme": true,
-  "domains": ["sensor"],
-  "homeassistant": "2024.1.0",
+  "domains": [
+    "sensor"
+  ],
+  "homeassistant": "2025.3.0",
   "iot_class": "Cloud Polling"
 }

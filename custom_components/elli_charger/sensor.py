@@ -1,287 +1,218 @@
-"""Support for Elli Charger sensors."""
+"""Sensors for the Elli Charger integration."""
+
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    STATUS_CHARGING,
+    STATUS_CONNECTED,
+    STATUS_IDLE,
+    STATUS_OPTIONS,
+)
+from .coordinator import ElliConfigEntry, ElliData, ElliDataUpdateCoordinator
+
+PARALLEL_UPDATES = 0
+
+
+def _status(data: ElliData, station_id: str) -> str:
+    session = data.sessions.get(station_id)
+    if session is None:
+        return STATUS_IDLE
+    if (session.momentary_charging_speed_watts or 0) > 0 or (
+        session.charging_state and "charging" in session.charging_state.lower()
+    ):
+        return STATUS_CHARGING
+    return STATUS_CONNECTED
+
+
+def _power(data: ElliData, station_id: str) -> int:
+    session = data.sessions.get(station_id)
+    if session is None:
+        return 0
+    return session.momentary_charging_speed_watts or 0
+
+
+def _session_energy(data: ElliData, station_id: str) -> float | None:
+    """Energy of the running session, else of the last completed one."""
+    session = data.sessions.get(station_id)
+    if session is not None and session.energy_consumption_wh is not None:
+        return session.energy_consumption_wh / 1000
+    record = data.last_records.get(station_id)
+    if record is not None:
+        return record.total_energy_wh / 1000
+    return None
+
+
+def _total_energy(data: ElliData, station_id: str) -> float | None:
+    total = data.total_energy_wh.get(station_id)
+    return None if total is None else total / 1000
+
+
+def _last_session(data: ElliData, station_id: str) -> str | None:
+    session = data.sessions.get(station_id)
+    if session is not None:
+        return session.charging_state or session.lifecycle_state or STATUS_CONNECTED
+    return STATUS_IDLE
+
+
+def _last_session_attrs(data: ElliData, station_id: str) -> dict[str, Any]:
+    session = data.sessions.get(station_id)
+    if session is not None:
+        return {
+            "session_id": session.id,
+            "lifecycle_state": session.lifecycle_state,
+            "charging_state": session.charging_state,
+            "authentication_method": session.authentication_method,
+            "rfid_card": session.rfid_card_serial_number,
+            "start_time": session.start_date_time,
+            "last_updated": session.last_updated,
+        }
+    record = data.last_records.get(station_id)
+    if record is not None:
+        return {
+            "session_id": record.charging_session_id,
+            "energy_kwh": record.total_energy_wh / 1000,
+            "rfid_card": record.rfid_card_serial_number,
+            "start_time": record.start_date_time,
+            "end_time": record.stop_date_time,
+            "faulted": record.session_faulted,
+        }
+    return {}
+
+
+@dataclass(frozen=True, kw_only=True)
+class ElliSensorDescription(SensorEntityDescription):
+    """Describes an Elli sensor."""
+
+    # Suffix appended to the 1.x unique ID scheme, kept for existing entities.
+    unique_id_suffix: str
+    value_fn: Callable[[ElliData, str], Any]
+    attrs_fn: Callable[[ElliData, str], dict[str, Any]] | None = None
+
+
+SENSORS: tuple[ElliSensorDescription, ...] = (
+    ElliSensorDescription(
+        key="status",
+        translation_key="status",
+        unique_id_suffix="",
+        device_class=SensorDeviceClass.ENUM,
+        options=STATUS_OPTIONS,
+        value_fn=_status,
+    ),
+    ElliSensorDescription(
+        key="power",
+        translation_key="power",
+        unique_id_suffix="_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        value_fn=_power,
+    ),
+    ElliSensorDescription(
+        key="session_energy",
+        translation_key="session_energy",
+        unique_id_suffix="_session_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        # No state class: it falls back to the last completed session when
+        # idle, so statistics would count session ends as meter resets. The
+        # total energy sensor is the one for the Energy dashboard.
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_session_energy,
+    ),
+    ElliSensorDescription(
+        key="total_energy",
+        translation_key="total_energy",
+        unique_id_suffix="_total_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_total_energy,
+    ),
+    ElliSensorDescription(
+        key="last_session",
+        translation_key="last_session",
+        unique_id_suffix="_last_session",
+        value_fn=_last_session,
+        attrs_fn=_last_session_attrs,
+    ),
+)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: ElliConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Elli Charger sensors based on a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-
-    entities = []
-
-    # Add station (charger) sensors with their corresponding session sensors
-    if stations := coordinator.data.get("stations"):
-        for station in stations:
-            station_id = station.id
-            # Wallbox status sensor
-            entities.append(
-                ElliWallboxSensor(coordinator, station_id, entry.entry_id)
-            )
-            # Last session sensor
-            entities.append(
-                ElliLastSessionSensor(coordinator, station_id, entry.entry_id)
-            )
-            # Session energy sensor (for Energy Dashboard)
-            entities.append(
-                ElliSessionEnergySensor(coordinator, station_id, entry.entry_id)
-            )
-
-    async_add_entities(entities)
+    """Set up sensors for every wallbox on the account."""
+    coordinator = entry.runtime_data
+    async_add_entities(
+        ElliSensor(coordinator, station_id, description)
+        for station_id in coordinator.data.stations
+        for description in SENSORS
+    )
 
 
-class ElliWallboxSensor(CoordinatorEntity, SensorEntity):
-    """Representation of an Elli Wallbox sensor."""
+class ElliSensor(CoordinatorEntity[ElliDataUpdateCoordinator], SensorEntity):
+    """One value of one wallbox."""
+
+    _attr_has_entity_name = True
+    entity_description: ElliSensorDescription
 
     def __init__(
-        self, coordinator, station_id: str, entry_id: str
+        self,
+        coordinator: ElliDataUpdateCoordinator,
+        station_id: str,
+        description: ElliSensorDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self.entity_description = description
         self._station_id = station_id
-        self._attr_icon = "mdi:ev-station"
+        self._attr_unique_id = (
+            f"{coordinator.config_entry.entry_id}_wallbox_{station_id}"
+            f"{description.unique_id_suffix}"
+        )
+        station = coordinator.data.stations[station_id]
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, station_id)},
+            manufacturer="Elli",
+            model=station.model,
+            name=station.name,
+            serial_number=station.serial_number,
+            sw_version=station.firmware_version,
+        )
 
     @property
-    def unique_id(self) -> str:
-        """Return unique ID."""
-        return f"{self.coordinator.config_entry.entry_id}_wallbox_{self._station_id}"
+    def available(self) -> bool:
+        """Return True while the account still lists this wallbox."""
+        return super().available and self._station_id in self.coordinator.data.stations
 
     @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        station = self._get_station()
-        if station:
-            return f"Elli Wallbox {station.name}"
-        return f"Elli Wallbox {self._station_id}"
+    def native_value(self) -> Any:
+        """Return the sensor value."""
+        return self.entity_description.value_fn(self.coordinator.data, self._station_id)
 
     @property
-    def native_value(self) -> str | None:
-        """Return the state of the sensor."""
-        if self._is_charging():
-            return "Charging"
-        elif self._has_active_session():
-            return "Connected"
-        return "Idle"
-
-    def _get_station(self):
-        """Get the station object."""
-        stations = self.coordinator.data.get("stations", [])
-        for station in stations:
-            if station.id == self._station_id:
-                return station
-        return None
-
-    def _get_latest_session(self):
-        """Get the latest session for this station."""
-        sessions = self.coordinator.data.get("sessions", [])
-        for session in sessions:
-            if session.station_id == self._station_id:
-                return session
-        return None
-
-    def _has_active_session(self) -> bool:
-        """Check if station has an active session."""
-        session = self._get_latest_session()
-        return session and session.lifecycle_state == "active"
-
-    def _is_charging(self) -> bool:
-        """Check if station is currently charging."""
-        session = self._get_latest_session()
-        if not session:
-            return False
-        # Check if charging (either by charging_state or by power > 0)
-        if session.charging_state and "charging" in session.charging_state.lower():
-            return True
-        if session.momentary_charging_speed_watts and session.momentary_charging_speed_watts > 0:
-            return True
-        return False
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional attributes."""
-        station = self._get_station()
-        if not station:
-            return {}
-
-        attrs = {
-            "station_id": station.id,
-            "name": station.name,
-        }
-        if station.serial_number:
-            attrs["serial_number"] = station.serial_number
-        if station.model:
-            attrs["model"] = station.model
-        if station.firmware_version:
-            attrs["firmware_version"] = station.firmware_version
-
-        return attrs
-
-
-class ElliLastSessionSensor(CoordinatorEntity, SensorEntity):
-    """Representation of an Elli last/current session sensor."""
-
-    def __init__(
-        self, coordinator, station_id: str, entry_id: str
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._station_id = station_id
-        self._attr_icon = "mdi:ev-plug-type2"
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique ID."""
-        return f"{self.coordinator.config_entry.entry_id}_wallbox_{self._station_id}_last_session"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        station = self._get_station()
-        if station:
-            return f"Elli Wallbox {station.name} Last Session"
-        return f"Elli Wallbox {self._station_id} Last Session"
-
-    def _get_station(self):
-        """Get the station object."""
-        stations = self.coordinator.data.get("stations", [])
-        for station in stations:
-            if station.id == self._station_id:
-                return station
-        return None
-
-    def _get_latest_session(self):
-        """Get the latest session for this station."""
-        sessions = self.coordinator.data.get("sessions", [])
-        for session in sessions:
-            if session.station_id == self._station_id:
-                return session
-        return None
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the state of the sensor (charging state)."""
-        session = self._get_latest_session()
-        if not session:
-            return "idle"
-
-        # Prefer charging_state field
-        if session.charging_state:
-            return session.charging_state
-        # Fall back to lifecycle_state
-        if session.lifecycle_state:
-            return session.lifecycle_state
-        return "unknown"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional attributes."""
-        session = self._get_latest_session()
-        if not session:
-            return {}
-
-        attrs = {
-            "session_id": session.id,
-            "station_id": session.station_id,
-        }
-
-        # Energy and power
-        if session.energy_consumption_wh is not None:
-            attrs["session_energy"] = round(session.energy_consumption_wh / 1000, 2)
-        if session.momentary_charging_speed_watts is not None:
-            attrs["session_power"] = session.momentary_charging_speed_watts
-
-        # State information
-        if session.lifecycle_state:
-            attrs["lifecycle_state"] = session.lifecycle_state
-        if session.charging_state:
-            attrs["charging_state"] = session.charging_state
-
-        # Authentication information
-        if session.authentication_method:
-            attrs["authentication_method"] = session.authentication_method
-        if session.rfid_card_serial_number:
-            attrs["rfid_card"] = session.rfid_card_serial_number
-        if session.connector_id:
-            attrs["connector_id"] = session.connector_id
-
-        # Timestamps
-        if session.start_date_time:
-            attrs["start_time"] = session.start_date_time
-        if session.end_date_time:
-            attrs["end_time"] = session.end_date_time
-        if session.last_updated:
-            attrs["last_updated"] = session.last_updated
-
-        return attrs
-
-
-class ElliSessionEnergySensor(CoordinatorEntity, SensorEntity):
-    """Representation of an Elli session energy sensor for Energy Dashboard."""
-
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-
-    def __init__(
-        self, coordinator, station_id: str, entry_id: str
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._station_id = station_id
-        self._attr_icon = "mdi:battery-charging"
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique ID."""
-        return f"{self.coordinator.config_entry.entry_id}_wallbox_{self._station_id}_session_energy"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        station = self._get_station()
-        if station:
-            return f"Elli Wallbox {station.name} Session Energy"
-        return f"Elli Wallbox {self._station_id} Session Energy"
-
-    def _get_station(self):
-        """Get the station object."""
-        stations = self.coordinator.data.get("stations", [])
-        for station in stations:
-            if station.id == self._station_id:
-                return station
-        return None
-
-    def _get_latest_session(self):
-        """Get the latest session for this station."""
-        sessions = self.coordinator.data.get("sessions", [])
-        for session in sessions:
-            if session.station_id == self._station_id:
-                return session
-        return None
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the state of the sensor (energy in kWh)."""
-        session = self._get_latest_session()
-        if session and session.energy_consumption_wh is not None:
-            # Convert Wh to kWh
-            return round(session.energy_consumption_wh / 1000, 2)
-        return None
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return extra attributes, if this sensor has any."""
+        if self.entity_description.attrs_fn is None:
+            return None
+        return self.entity_description.attrs_fn(self.coordinator.data, self._station_id)
