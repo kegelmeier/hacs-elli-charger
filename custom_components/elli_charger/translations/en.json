@@ -2,21 +2,60 @@
   "config": {
     "step": {
       "user": {
-        "title": "Elli Charger Setup",
-        "description": "Enter your Elli account credentials",
+        "title": "Log in to Elli",
+        "description": "Elli's login page blocks automated logins, so you log in in your browser and paste the address Elli sends you back to.\n\n1. Open your browser's developer tools (F12) on the **Console** tab, then open [the Elli login]({login_url}) in the same tab.\n2. Log in. Elli then tries to open the Elli app, which fails in a desktop browser.\n3. Copy the address that starts with `com.elli.ios.emsp://` from the console error (or from the browser's address bar) and paste it below.\n\nThe link works once and for a few minutes only. If anything goes wrong, a new link is shown.",
         "data": {
-          "email": "Email",
-          "password": "Password"
+          "callback_url": "Address starting with com.elli.ios.emsp://"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Log in to Elli again",
+        "description": "Elli no longer accepts the stored login. Open your browser's developer tools (F12) on the **Console** tab, open [the Elli login]({login_url}), log in, and paste the `com.elli.ios.emsp://` address from the console error below.",
+        "data": {
+          "callback_url": "Address starting with com.elli.ios.emsp://"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Elli API",
-      "invalid_auth": "Invalid email or password",
-      "unknown": "Unexpected error occurred"
+      "state_mismatch": "This address belongs to an older login link. Use the new link below.",
+      "invalid_callback": "That is not the Elli callback address. It starts with com.elli.ios.emsp:// and contains code= and state=.",
+      "invalid_auth": "Elli did not accept the login. Try again with the new link below.",
+      "cannot_connect": "Logged in, but the Elli API did not answer. Try again later.",
+      "unknown": "Unexpected error, see the Home Assistant log."
     },
     "abort": {
-      "already_configured": "This Elli account is already configured"
+      "already_configured": "This Elli account is already set up.",
+      "reauth_successful": "Logged in again.",
+      "wrong_account": "You logged in with a different Elli account than the one this entry belongs to."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Elli Charger options",
+        "data": {
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "scan_interval": "How often to ask the Elli cloud for new data. The cloud itself updates slowly, so shorter intervals rarely help."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "connected": "Connected",
+          "charging": "Charging"
+        }
+      },
+      "power": { "name": "Charging power" },
+      "session_energy": { "name": "Session energy" },
+      "total_energy": { "name": "Total energy" },
+      "last_session": { "name": "Last session" }
     }
   }
 }

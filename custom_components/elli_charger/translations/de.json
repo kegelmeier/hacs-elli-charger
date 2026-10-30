@@ -2,21 +2,60 @@
   "config": {
     "step": {
       "user": {
-        "title": "Elli Ladestation Einrichtung",
-        "description": "Geben Sie Ihre Elli-Zugangsdaten ein",
+        "title": "Bei Elli anmelden",
+        "description": "Elli blockiert automatische Anmeldungen. Du meldest dich deshalb im Browser an und fügst die Adresse ein, auf die Elli danach zurückleitet.\n\n1. Öffne die Entwicklertools des Browsers (F12) auf dem Tab **Konsole** und öffne dann im selben Tab [die Elli-Anmeldung]({login_url}).\n2. Melde dich an. Elli versucht danach, die Elli-App zu öffnen. Das schlägt im Desktop-Browser fehl.\n3. Kopiere die Adresse, die mit `com.elli.ios.emsp://` beginnt, aus der Fehlermeldung in der Konsole (oder aus der Adresszeile) und füge sie unten ein.\n\nDer Link funktioniert nur einmal und nur wenige Minuten. Wenn etwas schiefgeht, wird ein neuer Link angezeigt.",
         "data": {
-          "email": "E-Mail",
-          "password": "Passwort"
+          "callback_url": "Adresse, die mit com.elli.ios.emsp:// beginnt"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Erneut bei Elli anmelden",
+        "description": "Elli akzeptiert die gespeicherte Anmeldung nicht mehr. Öffne die Entwicklertools des Browsers (F12) auf dem Tab **Konsole**, öffne [die Elli-Anmeldung]({login_url}), melde dich an und füge unten die `com.elli.ios.emsp://`-Adresse aus der Fehlermeldung in der Konsole ein.",
+        "data": {
+          "callback_url": "Adresse, die mit com.elli.ios.emsp:// beginnt"
         }
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zur Elli API fehlgeschlagen",
-      "invalid_auth": "Ungültige E-Mail oder Passwort",
-      "unknown": "Ein unerwarteter Fehler ist aufgetreten"
+      "state_mismatch": "Diese Adresse gehört zu einem älteren Anmeldelink. Nutze den neuen Link unten.",
+      "invalid_callback": "Das ist nicht die Elli-Rückleitungsadresse. Sie beginnt mit com.elli.ios.emsp:// und enthält code= und state=.",
+      "invalid_auth": "Elli hat die Anmeldung nicht akzeptiert. Versuche es mit dem neuen Link unten noch einmal.",
+      "cannot_connect": "Angemeldet, aber die Elli-API antwortet nicht. Versuche es später noch einmal.",
+      "unknown": "Unerwarteter Fehler, siehe Home-Assistant-Protokoll."
     },
     "abort": {
-      "already_configured": "Dieses Elli-Konto ist bereits konfiguriert"
+      "already_configured": "Dieses Elli-Konto ist bereits eingerichtet.",
+      "reauth_successful": "Erneut angemeldet.",
+      "wrong_account": "Du hast dich mit einem anderen Elli-Konto angemeldet als dem, zu dem dieser Eintrag gehört."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen für Elli Charger",
+        "data": {
+          "scan_interval": "Abfrageintervall"
+        },
+        "data_description": {
+          "scan_interval": "Wie oft die Elli-Cloud nach neuen Daten gefragt wird. Die Cloud aktualisiert selbst nur langsam, kürzere Intervalle bringen daher selten etwas."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Bereit",
+          "connected": "Verbunden",
+          "charging": "Lädt"
+        }
+      },
+      "power": { "name": "Ladeleistung" },
+      "session_energy": { "name": "Energie Ladevorgang" },
+      "total_energy": { "name": "Energie gesamt" },
+      "last_session": { "name": "Letzter Ladevorgang" }
     }
   }
 }

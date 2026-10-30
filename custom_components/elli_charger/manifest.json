@@ -1,12 +1,14 @@
 {
   "domain": "elli_charger",
   "name": "Elli Charger",
-  "codeowners": ["@marcszy91"],
+  "codeowners": ["@kegelmeier"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/marcszy91/hacs-elli-charger",
+  "documentation": "https://github.com/kegelmeier/hacs-elli-charger",
+  "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/marcszy91/hacs-elli-charger/issues",
-  "requirements": ["elli-client==1.0.3"],
-  "version": "1.0.0"
+  "issue_tracker": "https://github.com/kegelmeier/hacs-elli-charger/issues",
+  "loggers": ["elli_client"],
+  "requirements": ["elli-client==1.5.0"],
+  "version": "0.2.0"
 }
